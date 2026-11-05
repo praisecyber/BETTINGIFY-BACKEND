@@ -24,13 +24,16 @@ if (isProd && (!env.JWT_SECRET || env.JWT_SECRET.length < 32 || !env.WEBHOOK_SEC
 if (isProd && !env.MIN_GAMBLING_AGE) {
   throw new Error('MIN_GAMBLING_AGE must be set for the licensed market in production');
 }
-if (isProd && env.ADMIN_PASSWORD
-  && (env.ADMIN_PASSWORD.length < 12
-    || !/[a-z]/.test(env.ADMIN_PASSWORD)
-    || !/[A-Z]/.test(env.ADMIN_PASSWORD)
-    || !/[0-9]/.test(env.ADMIN_PASSWORD)
-    || !/[^A-Za-z0-9]/.test(env.ADMIN_PASSWORD))) {
-  throw new Error('ADMIN_PASSWORD must be at least 12 characters with upper/lowercase letters, a number, and a symbol');
+const adminPassword = env.ADMIN_PASSWORD;
+const complexAdminPassword = adminPassword
+  && adminPassword.length >= 12
+  && /[a-z]/.test(adminPassword)
+  && /[A-Z]/.test(adminPassword)
+  && /[0-9]/.test(adminPassword)
+  && /[^A-Za-z0-9]/.test(adminPassword);
+const generatedAdminPassword = adminPassword && /^[A-Fa-f0-9]{64,}$/.test(adminPassword);
+if (isProd && adminPassword && !complexAdminPassword && !generatedAdminPassword) {
+  throw new Error('ADMIN_PASSWORD must be a strong mixed-complexity password or at least 64 hexadecimal characters');
 }
 
 export const config = {

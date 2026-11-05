@@ -23,6 +23,7 @@ The migration uses `MONGODB_DB` (default `bettingify`), copies each SQLite table
 ## Conventions
 - Browser clients keep access tokens in memory only. Rotating refresh tokens are stored in an `HttpOnly` cookie; send credentials with requests and list each web/native frontend origin in `CORS_ORIGINS`. Production cookies require HTTPS.
 - Production login is limited to 10 attempts per IP per 15 minutes. Invalid and suspended accounts share the same login error; production JWT/webhook secrets must each be at least 32 characters.
+- Keep separate random `JWT_SECRET` and `WEBHOOK_SECRET` values in the production host's secret manager; the local ignored `.env` does not configure a remote deployment. Rotating either secret invalidates existing JWTs or webhook signatures. A high-entropy 64+ character hexadecimal bootstrap admin password is accepted.
 - Base URL `/api/v1`. `Authorization: Bearer <accessToken>` (15 min) + rotating refresh token.
 - Amounts in/out are major units (e.g. `10.5`), stored as integer cents. Odds are decimals.
 - Errors: `{ "error": { "code", "message", "details?" } }`.
