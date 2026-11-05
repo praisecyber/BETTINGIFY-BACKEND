@@ -1,0 +1,10 @@
+node_modules
+dist
+data
+.env*
+!.env.example
+*.pem
+*.key
+*.p12
+*.jks
+google-services.json

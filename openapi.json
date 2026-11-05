@@ -1,0 +1,1034 @@
+{
+    "openapi": "3.1.0",
+    "info": {
+        "title": "Bettingify API",
+        "version": "1.0.0",
+        "description": "API documentation for live sports data, bookmaker quotes, the game catalog, and playable casino games. Provider API keys are configured on the backend and are never sent by clients."
+    },
+    "servers": [
+        {
+            "url": "http://localhost:4000",
+            "description": "Local backend"
+        }
+    ],
+    "tags": [
+        {
+            "name": "Sports data",
+            "description": "Today's third-party fixtures and bookmaker quotes; these feeds are informational and do not create bettable markets."
+        },
+        {
+            "name": "Games",
+            "description": "Playable game catalog and server-run casino rounds."
+        }
+    ],
+    "paths": {
+        "/health": {
+            "get": {
+                "summary": "Check API health",
+                "tags": [
+                    "System"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "API is running",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "ok": {
+                                            "type": "boolean"
+                                        },
+                                        "time": {
+                                            "type": "string",
+                                            "format": "date-time"
+                                        }
+                                    },
+                                    "required": [
+                                        "ok",
+                                        "time"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sports-feed/sportapi/events": {
+            "get": {
+                "summary": "Get today's football fixtures from SportAPI",
+                "tags": [
+                    "Sports data"
+                ],
+                "parameters": [
+                    {
+                        "name": "date",
+                        "in": "query",
+                        "required": false,
+                        "description": "Calendar date; defaults to today (UTC).",
+                        "schema": {
+                            "type": "string",
+                            "format": "date"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Fixtures returned by the configured provider",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/FixtureFeed"
+                                }
+                            }
+                        }
+                    },
+                    "502": {
+                        "$ref": "#/components/responses/ProviderError"
+                    },
+                    "503": {
+                        "$ref": "#/components/responses/ProviderNotConfigured"
+                    }
+                }
+            }
+        },
+        "/api/v1/sports-feed/events": {
+            "get": {
+                "summary": "Get fixtures from TheSportsDB",
+                "tags": [
+                    "Sports data"
+                ],
+                "parameters": [
+                    {
+                        "name": "date",
+                        "in": "query",
+                        "required": false,
+                        "description": "Calendar date; defaults to today (UTC).",
+                        "schema": {
+                            "type": "string",
+                            "format": "date"
+                        }
+                    },
+                    {
+                        "name": "sport",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "default": "Soccer",
+                            "maxLength": 40
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Fixtures returned by the configured provider",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/FixtureFeed"
+                                }
+                            }
+                        }
+                    },
+                    "502": {
+                        "$ref": "#/components/responses/ProviderError"
+                    }
+                }
+            }
+        },
+        "/api/v1/sports-feed/odds": {
+            "get": {
+                "summary": "Get third-party bookmaker odds",
+                "description": "One request per minute. Quotes are informational only and are not connected to bet placement or settlement.",
+                "tags": [
+                    "Sports data"
+                ],
+                "parameters": [
+                    {
+                        "name": "sportKey",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "default": "soccer_epl"
+                        }
+                    },
+                    {
+                        "name": "regions",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "default": "us",
+                            "example": "uk"
+                        }
+                    },
+                    {
+                        "name": "markets",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "default": "h2h",
+                            "example": "h2h"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Bookmaker quotes",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/OddsFeed"
+                                }
+                            }
+                        }
+                    },
+                    "429": {
+                        "description": "Rate limit reached"
+                    },
+                    "502": {
+                        "$ref": "#/components/responses/ProviderError"
+                    },
+                    "503": {
+                        "$ref": "#/components/responses/ProviderNotConfigured"
+                    }
+                }
+            }
+        },
+        "/api/v1/sports-feed/sportapi/teams/{id}/logo": {
+            "get": {
+                "summary": "Get a SportAPI team badge",
+                "description": "Proxies the provider's team-logo endpoint so the provider API key remains server-side. The image is cached for one day.",
+                "tags": [
+                    "Sports data"
+                ],
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "minimum": 1
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Team logo image",
+                        "content": {
+                            "image/png": {},
+                            "image/svg+xml": {},
+                            "image/webp": {}
+                        }
+                    },
+                    "502": {
+                        "$ref": "#/components/responses/ProviderError"
+                    },
+                    "503": {
+                        "$ref": "#/components/responses/ProviderNotConfigured"
+                    }
+                }
+            }
+        },
+        "/api/v1/matches": {
+            "get": {
+                "summary": "List internal bettable matches",
+                "description": "Returns matches managed by the app. These are separate from third-party sports-feed events.",
+                "tags": [
+                    "Sports data"
+                ],
+                "parameters": [
+                    {
+                        "name": "sport",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "live",
+                        "in": "query",
+                        "schema": {
+                            "type": "boolean"
+                        }
+                    },
+                    {
+                        "name": "status",
+                        "in": "query",
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "scheduled",
+                                "live",
+                                "finished",
+                                "cancelled"
+                            ]
+                        }
+                    },
+                    {
+                        "name": "q",
+                        "in": "query",
+                        "schema": {
+                            "type": "string",
+                            "maxLength": 60
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Internal matches",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "matches": {
+                                            "type": "array",
+                                            "items": {
+                                                "$ref": "#/components/schemas/Match"
+                                            }
+                                        }
+                                    },
+                                    "required": [
+                                        "matches"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/games": {
+            "get": {
+                "summary": "List games available in the catalog",
+                "tags": [
+                    "Games"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Game catalog",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "games": {
+                                            "type": "array",
+                                            "items": {
+                                                "$ref": "#/components/schemas/Game"
+                                            }
+                                        }
+                                    },
+                                    "required": [
+                                        "games"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/casino/play": {
+            "post": {
+                "summary": "Play one roulette or slots round",
+                "description": "Requires a signed-in, gambling-eligible account. The server generates the outcome, debits the stake, records the round, and credits any payout. Send an Idempotency-Key to prevent duplicate plays on retries. Amounts are in major currency units (for example, 1.50). Payout is the total return, including the stake.",
+                "tags": [
+                    "Games"
+                ],
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "name": "Idempotency-Key",
+                        "in": "header",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "maxLength": 100
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CasinoPlayRequest"
+                            },
+                            "examples": {
+                                "rouletteColor": {
+                                    "summary": "Bet on red",
+                                    "value": {
+                                        "gameId": "roulette",
+                                        "stake": 1,
+                                        "betType": "red"
+                                    }
+                                },
+                                "rouletteNumber": {
+                                    "summary": "Bet on number 7",
+                                    "value": {
+                                        "gameId": "roulette",
+                                        "stake": 1,
+                                        "betType": "number",
+                                        "number": 7
+                                    }
+                                },
+                                "slots": {
+                                    "summary": "Spin slots",
+                                    "value": {
+                                        "gameId": "slots",
+                                        "stake": 1
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "Round result and updated wallet",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/CasinoPlayResponse"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/RequestError"
+                    },
+                    "401": {
+                        "$ref": "#/components/responses/Unauthorized"
+                    },
+                    "409": {
+                        "description": "Account verification or self-exclusion prevents play",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "components": {
+        "securitySchemes": {
+            "bearerAuth": {
+                "type": "http",
+                "scheme": "bearer",
+                "bearerFormat": "JWT"
+            }
+        },
+        "schemas": {
+            "ErrorResponse": {
+                "type": "object",
+                "properties": {
+                    "error": {
+                        "type": "object",
+                        "properties": {
+                            "code": {
+                                "type": "string"
+                            },
+                            "message": {
+                                "type": "string"
+                            },
+                            "details": {}
+                        },
+                        "required": [
+                            "code",
+                            "message"
+                        ]
+                    }
+                },
+                "required": [
+                    "error"
+                ]
+            },
+            "FixtureFeed": {
+                "type": "object",
+                "properties": {
+                    "provider": {
+                        "type": "string"
+                    },
+                    "date": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "fetchedAt": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "events": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/Fixture"
+                        }
+                    }
+                },
+                "required": [
+                    "provider",
+                    "date",
+                    "fetchedAt",
+                    "events"
+                ]
+            },
+            "Fixture": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string"
+                    },
+                    "sport": {
+                        "type": "string"
+                    },
+                    "league": {
+                        "type": "string"
+                    },
+                    "home": {
+                        "type": "string"
+                    },
+                    "away": {
+                        "type": "string"
+                    },
+                    "homeLogo": {
+                        "type": "string",
+                        "format": "uri"
+                    },
+                    "awayLogo": {
+                        "type": "string",
+                        "format": "uri"
+                    },
+                    "startsAt": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "status": {
+                        "type": "string",
+                        "enum": [
+                            "scheduled",
+                            "live",
+                            "finished",
+                            "cancelled"
+                        ]
+                    },
+                    "score": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "result": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "enum": [
+                            "home",
+                            "draw",
+                            "away",
+                            null
+                        ]
+                    }
+                },
+                "required": [
+                    "id",
+                    "sport",
+                    "league",
+                    "home",
+                    "away",
+                    "startsAt",
+                    "status",
+                    "score",
+                    "result"
+                ]
+            },
+            "OddsFeed": {
+                "type": "object",
+                "properties": {
+                    "provider": {
+                        "type": "string"
+                    },
+                    "sportKey": {
+                        "type": "string"
+                    },
+                    "regions": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "markets": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "fetchedAt": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "events": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/OddsEvent"
+                        }
+                    }
+                },
+                "required": [
+                    "provider",
+                    "sportKey",
+                    "regions",
+                    "markets",
+                    "fetchedAt",
+                    "events"
+                ]
+            },
+            "OddsEvent": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string"
+                    },
+                    "sportKey": {
+                        "type": "string"
+                    },
+                    "sport": {
+                        "type": "string"
+                    },
+                    "startsAt": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "home": {
+                        "type": "string"
+                    },
+                    "away": {
+                        "type": "string"
+                    },
+                    "bookmakers": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "key": {
+                                    "type": "string"
+                                },
+                                "name": {
+                                    "type": "string"
+                                },
+                                "updatedAt": {
+                                    "type": [
+                                        "string",
+                                        "null"
+                                    ],
+                                    "format": "date-time"
+                                },
+                                "markets": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "key": {
+                                                "type": "string"
+                                            },
+                                            "updatedAt": {
+                                                "type": [
+                                                    "string",
+                                                    "null"
+                                                ],
+                                                "format": "date-time"
+                                            },
+                                            "outcomes": {
+                                                "type": "array",
+                                                "items": {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "name": {
+                                                            "type": "string"
+                                                        },
+                                                        "price": {
+                                                            "type": "number"
+                                                        },
+                                                        "point": {
+                                                            "type": [
+                                                                "number",
+                                                                "null"
+                                                            ]
+                                                        },
+                                                        "description": {
+                                                            "type": [
+                                                                "string",
+                                                                "null"
+                                                            ]
+                                                        }
+                                                    },
+                                                    "required": [
+                                                        "name",
+                                                        "price",
+                                                        "point",
+                                                        "description"
+                                                    ]
+                                                }
+                                            }
+                                        },
+                                        "required": [
+                                            "key",
+                                            "updatedAt",
+                                            "outcomes"
+                                        ]
+                                    }
+                                }
+                            },
+                            "required": [
+                                "key",
+                                "name",
+                                "updatedAt",
+                                "markets"
+                            ]
+                        }
+                    }
+                },
+                "required": [
+                    "id",
+                    "sportKey",
+                    "sport",
+                    "startsAt",
+                    "home",
+                    "away",
+                    "bookmakers"
+                ]
+            },
+            "Match": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string"
+                    },
+                    "sport": {
+                        "type": "string"
+                    },
+                    "league": {
+                        "type": "string"
+                    },
+                    "home": {
+                        "type": "string"
+                    },
+                    "away": {
+                        "type": "string"
+                    },
+                    "startsAt": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "status": {
+                        "type": "string",
+                        "enum": [
+                            "scheduled",
+                            "live",
+                            "finished",
+                            "cancelled"
+                        ]
+                    },
+                    "isLive": {
+                        "type": "boolean"
+                    },
+                    "score": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "odds": {
+                        "type": "object",
+                        "properties": {
+                            "home": {
+                                "type": "number"
+                            },
+                            "draw": {
+                                "type": "number"
+                            },
+                            "away": {
+                                "type": "number"
+                            }
+                        },
+                        "required": [
+                            "home",
+                            "draw",
+                            "away"
+                        ]
+                    }
+                },
+                "required": [
+                    "id",
+                    "sport",
+                    "league",
+                    "home",
+                    "away",
+                    "startsAt",
+                    "status",
+                    "isLive",
+                    "score",
+                    "odds"
+                ]
+            },
+            "Game": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "image": {
+                        "type": "string",
+                        "format": "uri"
+                    },
+                    "tag": {
+                        "type": "string"
+                    },
+                    "rtp": {
+                        "type": "string"
+                    },
+                    "playable": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "id",
+                    "name",
+                    "image",
+                    "tag",
+                    "rtp",
+                    "playable"
+                ]
+            },
+            "CasinoPlayRequest": {
+                "oneOf": [
+                    {
+                        "type": "object",
+                        "properties": {
+                            "gameId": {
+                                "const": "roulette"
+                            },
+                            "stake": {
+                                "type": "number",
+                                "exclusiveMinimum": 0
+                            },
+                            "betType": {
+                                "type": "string",
+                                "enum": [
+                                    "red",
+                                    "black"
+                                ]
+                            }
+                        },
+                        "required": [
+                            "gameId",
+                            "stake",
+                            "betType"
+                        ]
+                    },
+                    {
+                        "type": "object",
+                        "properties": {
+                            "gameId": {
+                                "const": "roulette"
+                            },
+                            "stake": {
+                                "type": "number",
+                                "exclusiveMinimum": 0
+                            },
+                            "betType": {
+                                "const": "number"
+                            },
+                            "number": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 36
+                            }
+                        },
+                        "required": [
+                            "gameId",
+                            "stake",
+                            "betType",
+                            "number"
+                        ]
+                    },
+                    {
+                        "type": "object",
+                        "properties": {
+                            "gameId": {
+                                "const": "slots"
+                            },
+                            "stake": {
+                                "type": "number",
+                                "exclusiveMinimum": 0
+                            }
+                        },
+                        "required": [
+                            "gameId",
+                            "stake"
+                        ]
+                    }
+                ]
+            },
+            "Wallet": {
+                "type": "object",
+                "properties": {
+                    "balance": {
+                        "type": "number"
+                    },
+                    "withdrawable": {
+                        "type": "number"
+                    },
+                    "bonus": {
+                        "type": "number"
+                    },
+                    "bonusWagerRemaining": {
+                        "type": "number"
+                    },
+                    "currency": {
+                        "type": "string",
+                        "example": "USD"
+                    }
+                },
+                "required": [
+                    "balance",
+                    "withdrawable",
+                    "bonus",
+                    "bonusWagerRemaining",
+                    "currency"
+                ]
+            },
+            "CasinoPlayResponse": {
+                "type": "object",
+                "properties": {
+                    "roundId": {
+                        "type": "string"
+                    },
+                    "gameId": {
+                        "type": "string",
+                        "enum": [
+                            "roulette",
+                            "slots"
+                        ]
+                    },
+                    "stake": {
+                        "type": "number"
+                    },
+                    "choice": {
+                        "type": "object"
+                    },
+                    "outcome": {
+                        "type": "object",
+                        "properties": {
+                            "number": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 36
+                            },
+                            "color": {
+                                "type": "string",
+                                "enum": [
+                                    "red",
+                                    "black",
+                                    "green"
+                                ]
+                            },
+                            "won": {
+                                "type": "boolean"
+                            },
+                            "multiplier": {
+                                "type": "number"
+                            },
+                            "symbols": {
+                                "type": "array",
+                                "items": {
+                                    "type": "string"
+                                }
+                            }
+                        },
+                        "required": [
+                            "multiplier"
+                        ]
+                    },
+                    "payout": {
+                        "type": "number"
+                    },
+                    "net": {
+                        "type": "number"
+                    },
+                    "wallet": {
+                        "$ref": "#/components/schemas/Wallet"
+                    }
+                },
+                "required": [
+                    "roundId",
+                    "gameId",
+                    "stake",
+                    "outcome",
+                    "payout",
+                    "net",
+                    "wallet"
+                ]
+            }
+        },
+        "responses": {
+            "ProviderError": {
+                "description": "The provider could not be reached or returned invalid data",
+                "content": {
+                    "application/json": {
+                        "schema": {
+                            "$ref": "#/components/schemas/ErrorResponse"
+                        }
+                    }
+                }
+            },
+            "ProviderNotConfigured": {
+                "description": "The required backend provider key is not configured",
+                "content": {
+                    "application/json": {
+                        "schema": {
+                            "$ref": "#/components/schemas/ErrorResponse"
+                        }
+                    }
+                }
+            },
+            "RequestError": {
+                "description": "Invalid request or insufficient funds",
+                "content": {
+                    "application/json": {
+                        "schema": {
+                            "$ref": "#/components/schemas/ErrorResponse"
+                        }
+                    }
+                }
+            },
+            "Unauthorized": {
+                "description": "Missing or invalid access token",
+                "content": {
+                    "application/json": {
+                        "schema": {
+                            "$ref": "#/components/schemas/ErrorResponse"
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
