@@ -11,6 +11,7 @@ declare module 'express-serve-static-core' { interface Request { user?: AuthUser
 
 export const hashPassword = (pw: string) => bcrypt.hash(pw, config.bcryptCost);
 export const checkPassword = (pw: string, hash: string) => bcrypt.compare(pw, hash);
+export const dummyPasswordHash = hashPassword(randomBytes(32).toString('hex'));
 
 export const signAccess = (u: AuthUser) =>
   jwt.sign({ sub: u.id, role: u.role }, config.jwtSecret, { expiresIn: config.accessTtlSec });

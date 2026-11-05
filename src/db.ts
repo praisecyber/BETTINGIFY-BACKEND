@@ -280,6 +280,13 @@ CREATE TABLE IF NOT EXISTS account_verification_events (
 );
 CREATE INDEX IF NOT EXISTS idx_verification_events_user ON account_verification_events(user_id, created_at DESC);
 
+CREATE TABLE IF NOT EXISTS admin_account_events (
+  id TEXT PRIMARY KEY,
+  actor_id TEXT NOT NULL REFERENCES users(id),
+  target_id TEXT NOT NULL UNIQUE REFERENCES users(id),
+  created_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS bet_legs (
   id TEXT PRIMARY KEY,
   bet_id TEXT NOT NULL REFERENCES bets(id),

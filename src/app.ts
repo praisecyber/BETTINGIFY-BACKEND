@@ -28,6 +28,8 @@ export function createApp() {
 
   const v1 = express.Router();
   const authLimiter = rateLimit({ windowMs: 15 * 60_000, limit: config.isProd ? 30 : 1000, standardHeaders: true, legacyHeaders: false, message: { error: { code: 'RATE_LIMITED', message: 'Too many attempts, try again later' } } });
+  const loginLimiter = rateLimit({ windowMs: 15 * 60_000, limit: config.isProd ? 10 : 1000, standardHeaders: true, legacyHeaders: false, message: { error: { code: 'RATE_LIMITED', message: 'Too many login attempts, try again later' } } });
+  v1.use('/auth/login', loginLimiter);
   v1.use('/auth', authLimiter, authRouter);
   v1.use('/me', meRouter);
   v1.use('/wallet', walletRouter);

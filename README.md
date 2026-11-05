@@ -21,6 +21,8 @@ npm run migrate:mongodb
 The migration uses `MONGODB_DB` (default `bettingify`), copies each SQLite table to a collection of the same name, keeps stable document IDs, inserts missing documents without overwriting existing ones, and verifies copied documents. Back up the SQLite file and stop the backend before migrating so the source remains consistent. This copy command does not switch the application runtime from SQLite; the backend must be converted to async MongoDB repositories before Atlas can serve live application traffic.
 
 ## Conventions
+- Browser clients keep access tokens in memory only. Rotating refresh tokens are stored in an `HttpOnly` cookie; send credentials with requests and list each web/native frontend origin in `CORS_ORIGINS`. Production cookies require HTTPS.
+- Production login is limited to 10 attempts per IP per 15 minutes. Invalid and suspended accounts share the same login error; production JWT/webhook secrets must each be at least 32 characters.
 - Base URL `/api/v1`. `Authorization: Bearer <accessToken>` (15 min) + rotating refresh token.
 - Amounts in/out are major units (e.g. `10.5`), stored as integer cents. Odds are decimals.
 - Errors: `{ "error": { "code", "message", "details?" } }`.
@@ -45,6 +47,8 @@ The migration uses `MONGODB_DB` (default `bettingify`), copies each SQLite table
 - Aviator: `GET /aviator/state|history|rounds/:id|my-bet`, `POST /aviator/bet|bet/cancel|cashout`
 - Webhook: `POST /webhooks/payments` (HMAC-SHA256 of raw body in `x-signature`)
 - Admin: `GET /admin/payments|stats|users`, `GET /admin/users/:id/verification-events`, `POST /admin/withdrawals/:id/approve|reject`, `POST /admin/deposits/:id/confirm|fail`, `POST /admin/matches`, `POST /admin/matches/:id/settle|cancel`, `PATCH /admin/matches/:id`, `PATCH /admin/users/:id/status|verification`
+
+The initial administrator is bootstrapped from the private backend environment. After signing in at `#/admin`, an administrator can use `GET/POST /admin/admins` or the Administrators tab to create additional admin accounts; new admin passwords must be at least 12 characters with upper/lowercase letters, a number, and a symbol. Creation events record the actor and target account.
 
 ## Club badge assets
 Download badges for every club in a SportAPI date feed into `frontend/public/assets/club-badges` and write/update its local manifest:

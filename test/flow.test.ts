@@ -30,7 +30,7 @@ after(() => { aviator.aviator.stop(); server.close(); });
 async function api(method: string, path: string, body?: unknown, token?: string, headers: Record<string, string> = {}) {
   const r = await fetch(base + path, { method, headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}), ...headers }, body: body === undefined ? undefined : JSON.stringify(body) });
   const text = await r.text();
-  return { status: r.status, body: text ? JSON.parse(text) : null };
+  return { status: r.status, body: text ? JSON.parse(text) : null, headers: r.headers };
 }
 const reg = (email: string, phone: string, extra = {}) => api('POST', '/auth/register', {
   email, phone, password: 'secret1234', firstName: 'Ada', lastName: 'Obi', dateOfBirth: '1990-01-01', acceptedTerms: true, ...extra,
@@ -58,6 +58,11 @@ test('register, login, validation', async () => {
   assert.equal((await reg('ada@test.io', '+2348000000001')).status, 409);
   const l = await api('POST', '/auth/login', { identifier: 'ada@test.io', password: 'secret1234' });
   assert.equal(l.status, 200);
+  assert.equal('refreshToken' in l.body, false);
+  const cookie = l.headers.get('set-cookie');
+  assert.match(cookie ?? '', /bettingify_refresh=/);
+  assert.match(cookie ?? '', /HttpOnly/);
+  assert.match(cookie ?? '', /SameSite=Strict/);
   assert.equal((await api('POST', '/auth/login', { identifier: 'ada@test.io', password: 'nope' })).status, 401);
   const promotions = await api('GET', '/promotions');
   assert.equal(promotions.status, 200);
@@ -66,10 +71,35 @@ test('register, login, validation', async () => {
   assert.equal(me.body.wallet.currency, 'NGN');
   assert.equal(me.body.wallet.bonus, 5);
   assert.equal(me.body.wallet.withdrawable, 0);
-  const rf = await api('POST', '/auth/refresh', { refreshToken: l.body.refreshToken });
+  const rf = await api('POST', '/auth/refresh', {}, undefined, { cookie: cookie!.split(';', 1)[0] });
   assert.equal(rf.status, 200);
-  assert.equal((await api('POST', '/auth/refresh', { refreshToken: l.body.refreshToken })).status, 401); // rotated
+  assert.equal('refreshToken' in rf.body, false);
+  assert.equal((await api('POST', '/auth/refresh', {}, undefined, { cookie: cookie!.split(';', 1)[0] })).status, 401); // rotated
+  assert.equal((await api('POST', '/auth/refresh', {}, undefined, { origin: 'https://untrusted.example' })).status, 403);
   assert.equal((await api('GET', '/me')).status, 401);
+});
+
+test('admin accounts can only be created from the protected admin panel', async () => {
+  const admin = (await api('POST', '/auth/login', { identifier: 'admin@test.io', password: 'adminpass123' })).body.accessToken;
+  const player = (await reg('player-admin@test.io', '+2348000000020')).body.accessToken;
+  assert.equal((await api('POST', '/admin/admins', {}, player)).status, 403);
+  assert.equal((await api('GET', '/admin/admins', undefined, player)).status, 403);
+  const weak = await api('POST', '/admin/admins', {
+    email: 'newadmin@test.io', phone: '+2348000000021', firstName: 'New', lastName: 'Admin', password: 'weakpassword1',
+  }, admin);
+  assert.equal(weak.status, 400);
+  const created = await api('POST', '/admin/admins', {
+    email: 'NewAdmin@test.io', phone: '+234 800 000 0021', firstName: 'New', lastName: 'Admin', password: 'StrongerAdmin1!',
+  }, admin);
+  assert.equal(created.status, 201);
+  assert.equal(created.body.admin.email, 'newadmin@test.io');
+  assert.equal(created.body.admin.createdBy, 'admin@test.io');
+  assert.equal('password' in created.body.admin, false);
+  const list = await api('GET', '/admin/admins', undefined, admin);
+  assert.ok(list.body.admins.some((entry: { email: string }) => entry.email === 'newadmin@test.io'));
+  const newAdminLogin = await api('POST', '/auth/login', { identifier: 'newadmin@test.io', password: 'StrongerAdmin1!' });
+  assert.equal(newAdminLogin.status, 200);
+  assert.equal((await api('GET', '/admin/stats', undefined, newAdminLogin.body.accessToken)).status, 200);
 });
 
 test('TheSportsDB feed is proxied server-side and never becomes a betting market', async () => {
@@ -204,7 +234,8 @@ test('cash out, void match, gifts, pending deposit webhook', async () => {
   const raw = JSON.stringify({ providerRef: ref, status: 'completed' });
   const hook = (sig: string) => fetch(base + '/webhooks/payments', { method: 'POST', headers: { 'content-type': 'application/json', 'x-signature': sig }, body: raw });
   assert.equal((await hook('bad')).status, 401);
-  const sig = createHmac('sha256', 'dev-only-webhook-secret').update(raw).digest('hex');
+  const { config } = await import('../src/config.js');
+  const sig = createHmac('sha256', config.webhookSecret).update(raw).digest('hex');
   const cash0 = (await api('GET', '/wallet', undefined, t)).body.withdrawable;
   assert.equal((await hook(sig)).status, 200);
   assert.equal((await hook(sig)).status, 200); // replay is harmless

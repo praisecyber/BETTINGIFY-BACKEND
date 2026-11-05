@@ -18,11 +18,19 @@ if (!Number.isInteger(jackpotMaxEntriesPerUser) || jackpotMaxEntriesPerUser < 1 
   throw new Error('JACKPOT_MAX_ENTRIES_PER_USER must be an integer between 1 and 100');
 }
 
-if (isProd && (!env.JWT_SECRET || !env.WEBHOOK_SECRET)) {
-  throw new Error('JWT_SECRET and WEBHOOK_SECRET are required in production');
+if (isProd && (!env.JWT_SECRET || env.JWT_SECRET.length < 32 || !env.WEBHOOK_SECRET || env.WEBHOOK_SECRET.length < 32)) {
+  throw new Error('JWT_SECRET and WEBHOOK_SECRET must each be at least 32 characters in production');
 }
 if (isProd && !env.MIN_GAMBLING_AGE) {
   throw new Error('MIN_GAMBLING_AGE must be set for the licensed market in production');
+}
+if (isProd && env.ADMIN_PASSWORD
+  && (env.ADMIN_PASSWORD.length < 12
+    || !/[a-z]/.test(env.ADMIN_PASSWORD)
+    || !/[A-Z]/.test(env.ADMIN_PASSWORD)
+    || !/[0-9]/.test(env.ADMIN_PASSWORD)
+    || !/[^A-Za-z0-9]/.test(env.ADMIN_PASSWORD))) {
+  throw new Error('ADMIN_PASSWORD must be at least 12 characters with upper/lowercase letters, a number, and a symbol');
 }
 
 export const config = {

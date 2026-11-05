@@ -1,17 +1,73 @@
 import { Router } from 'express';
+import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
-import { all, get, newId, nowIso, run } from '../db.js';
-import { ah, badRequest, notFound } from '../lib/errors.js';
-import { requireAdmin, requireAuth } from '../lib/auth.js';
+import { all, get, newId, nowIso, run, tx } from '../db.js';
+import { ah, badRequest, conflict, notFound } from '../lib/errors.js';
+import { hashPassword, requireAdmin, requireAuth } from '../lib/auth.js';
 import { fromCents, toMilli } from '../lib/money.js';
 import { cancelMatch, matchDto, settleMatch, type MatchRow } from '../services/bets.js';
 import { approveWithdrawal, completeDeposit, failDeposit, getPayment, rejectWithdrawal } from '../services/payments.js';
 import { isOldEnough } from '../services/account.js';
+import { ensureWallet } from '../services/wallet.js';
 
 export const adminRouter = Router();
 adminRouter.use(requireAuth, requireAdmin);
 
 const pay = (p: any) => p && ({ id: p.id, userId: p.user_id, kind: p.kind, method: p.method, amount: fromCents(p.amount), bonus: fromCents(p.bonus_amount), status: p.status, destination: p.destination, note: p.note, createdAt: p.created_at });
+
+const adminSchema = z.object({
+  email: z.string().email().max(254).transform((value) => value.toLowerCase()),
+  phone: z.string().transform((value) => value.replace(/[\s\-()]/g, '')).refine((value) => /^\+?[0-9]{7,15}$/.test(value), 'Invalid phone number'),
+  firstName: z.string().trim().min(1).max(60),
+  lastName: z.string().trim().min(1).max(60),
+  password: z.string().min(12).max(128)
+    .refine((value) => /[a-z]/.test(value) && /[A-Z]/.test(value) && /[0-9]/.test(value) && /[^A-Za-z0-9]/.test(value),
+      'Use at least 12 characters with upper/lowercase letters, a number, and a symbol'),
+});
+
+adminRouter.get('/admins', (_req, res) => {
+  res.json({ admins: all<{
+    id: string; email: string; phone: string; first_name: string; last_name: string;
+    status: 'active' | 'suspended'; created_at: string; created_by: string | null;
+  }>(`SELECT u.id,u.email,u.phone,u.first_name,u.last_name,u.status,u.created_at,
+      actor.email AS created_by
+      FROM users u
+      LEFT JOIN admin_account_events event ON event.target_id = u.id
+      LEFT JOIN users actor ON actor.id = event.actor_id
+      WHERE u.role = 'admin'
+      ORDER BY u.created_at DESC LIMIT 100`).map((admin) => ({
+    id: admin.id, email: admin.email, phone: admin.phone,
+    name: `${admin.first_name} ${admin.last_name}`, status: admin.status,
+    createdAt: admin.created_at, createdBy: admin.created_by ?? 'Initial setup',
+  })) });
+});
+
+adminRouter.post('/admins', ah(async (req, res) => {
+  const b = adminSchema.parse(req.body);
+  if (get('SELECT 1 FROM users WHERE email = ? OR phone = ?', b.email, b.phone))
+    throw conflict('ADMIN_EXISTS', 'An account with this email or phone already exists');
+  const id = newId('usr');
+  const now = nowIso();
+  const passwordHash = await hashPassword(b.password);
+  const admin = tx(() => {
+    run(`INSERT INTO users (id,email,phone,password_hash,first_name,last_name,role,referral_code,terms_accepted_at,created_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?)`,
+    id, b.email, b.phone, passwordHash, b.firstName, b.lastName, 'admin',
+    randomBytes(4).toString('hex').toUpperCase(), now, now);
+    ensureWallet(id);
+    run('INSERT INTO admin_account_events (id,actor_id,target_id,created_at) VALUES (?,?,?,?)',
+      newId('aae'), req.user!.id, id, now);
+    return get<{
+      id: string; email: string; phone: string; first_name: string; last_name: string;
+      status: 'active' | 'suspended'; created_at: string;
+    }>('SELECT id,email,phone,first_name,last_name,status,created_at FROM users WHERE id = ?', id)!;
+  });
+  res.status(201).json({ admin: {
+    id: admin.id, email: admin.email, phone: admin.phone,
+    name: `${admin.first_name} ${admin.last_name}`, status: admin.status,
+    createdAt: admin.created_at, createdBy: get<{ email: string }>('SELECT email FROM users WHERE id = ?', req.user!.id)!.email,
+  } });
+}));
 
 adminRouter.get('/payments', (req, res) => {
   const q = z.object({ kind: z.enum(['deposit', 'withdraw']).optional(), status: z.string().optional() }).parse(req.query);

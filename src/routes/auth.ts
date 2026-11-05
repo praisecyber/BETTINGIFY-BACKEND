@@ -3,8 +3,8 @@ import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
 import { config } from '../config.js';
 import { get, newId, nowIso, run, tx } from '../db.js';
-import { ah, AppError, conflict, unauthorized } from '../lib/errors.js';
-import { checkPassword, hashPassword, issueRefreshToken, requireAuth, revokeRefreshToken, rotateRefreshToken, signAccess } from '../lib/auth.js';
+import { ah, AppError, conflict, forbidden, unauthorized } from '../lib/errors.js';
+import { checkPassword, dummyPasswordHash, hashPassword, issueRefreshToken, requireAuth, revokeRefreshToken, rotateRefreshToken, signAccess } from '../lib/auth.js';
 import { ensureWallet, grantBonus } from '../services/wallet.js';
 import { consumeAccountToken, isOldEnough, issueAccountToken } from '../services/account.js';
 import { userDto, type UserRow } from './me.js';
@@ -23,8 +23,34 @@ const registerSchema = z.object({
   referralCode: z.string().trim().max(20).optional(),
 });
 
-function session(u: UserRow, refreshToken?: string) {
-  return { user: userDto(u), accessToken: signAccess({ id: u.id, role: u.role }), refreshToken: refreshToken ?? issueRefreshToken(u.id), expiresInSec: config.accessTtlSec };
+const refreshCookie = 'bettingify_refresh';
+const refreshCookieOptions = {
+  httpOnly: true,
+  secure: config.isProd,
+  sameSite: config.isProd ? 'none' as const : 'strict' as const,
+  path: '/api/v1/auth',
+};
+
+function readRefreshCookie(req: import('express').Request) {
+  const entry = req.headers.cookie?.split(';').map((part) => part.trim()).find((part) => part.startsWith(`${refreshCookie}=`));
+  return entry?.slice(refreshCookie.length + 1);
+}
+
+function clearRefreshCookie(res: import('express').Response) {
+  res.clearCookie(refreshCookie, refreshCookieOptions);
+}
+
+function ensureTrustedOrigin(req: import('express').Request) {
+  const origin = req.get('origin');
+  if (origin && !config.corsOrigins.includes(origin)) throw forbidden('Request origin is not allowed');
+}
+
+function session(u: UserRow, res: import('express').Response, refreshToken?: string) {
+  res.cookie(refreshCookie, refreshToken ?? issueRefreshToken(u.id), {
+    ...refreshCookieOptions,
+    maxAge: config.refreshTtlDays * 86_400_000,
+  });
+  return { user: userDto(u), accessToken: signAccess({ id: u.id, role: u.role }), expiresInSec: config.accessTtlSec };
 }
 
 authRouter.post('/register', ah(async (req, res) => {
@@ -41,7 +67,7 @@ authRouter.post('/register', ah(async (req, res) => {
     if (config.registerBonusCents > 0) grantBonus(id, config.registerBonusCents, 'Registration free bet');
     return get<UserRow>('SELECT * FROM users WHERE id = ?', id)!;
   });
-  res.status(201).json(session(user));
+  res.status(201).json(session(user, res));
 }));
 
 const loginSchema = z.object({ identifier: z.string().min(3).max(254), password: z.string().min(1).max(128) });
@@ -49,25 +75,40 @@ authRouter.post('/login', ah(async (req, res) => {
   const b = loginSchema.parse(req.body);
   const id = b.identifier.trim();
   const u = get<UserRow & { password_hash: string }>('SELECT * FROM users WHERE email = ? OR phone = ?', id.toLowerCase(), id.replace(/[\s\-()]/g, ''));
-  // always run bcrypt so response time doesn't reveal whether the account exists
-  const ok = await checkPassword(b.password, u?.password_hash ?? '$2a$12$invalidinvalidinvalidinvalidinvalidinvalidinvalidinvalid.');
-  if (!u || !ok) throw unauthorized('Invalid credentials');
-  if (u.status !== 'active') throw new AppError(403, 'ACCOUNT_SUSPENDED', 'Account suspended, contact support');
+  const ok = await checkPassword(b.password, u?.password_hash ?? await dummyPasswordHash);
+  if (!u || !ok || u.status !== 'active') throw unauthorized('Invalid credentials');
   run('UPDATE users SET last_login_at = ? WHERE id = ?', nowIso(), u.id);
-  res.json(session(u));
+  res.json(session(u, res));
 }));
 
 authRouter.post('/refresh', ah(async (req, res) => {
-  const { refreshToken } = z.object({ refreshToken: z.string().min(10) }).parse(req.body);
-  const { userId, refreshToken: next } = rotateRefreshToken(refreshToken);
+  ensureTrustedOrigin(req);
+  const { refreshToken: legacyToken } = z.object({ refreshToken: z.string().min(10).optional() }).parse(req.body ?? {});
+  const token = readRefreshCookie(req) ?? legacyToken;
+  if (!token) throw unauthorized('Invalid refresh token');
+  let userId: string;
+  let refreshToken: string;
+  try {
+    ({ userId, refreshToken } = rotateRefreshToken(token));
+  } catch (error) {
+    clearRefreshCookie(res);
+    throw error;
+  }
   const u = get<UserRow>('SELECT * FROM users WHERE id = ?', userId)!;
-  if (u.status !== 'active') throw new AppError(403, 'ACCOUNT_SUSPENDED', 'Account suspended');
-  res.json(session(u, next));
+  if (u.status !== 'active') {
+    revokeRefreshToken(refreshToken);
+    clearRefreshCookie(res);
+    throw new AppError(403, 'ACCOUNT_SUSPENDED', 'Account suspended');
+  }
+  res.json(session(u, res, refreshToken));
 }));
 
 authRouter.post('/logout', requireAuth, ah(async (req, res) => {
-  const { refreshToken } = z.object({ refreshToken: z.string().optional() }).parse(req.body ?? {});
-  if (refreshToken) revokeRefreshToken(refreshToken);
+  ensureTrustedOrigin(req);
+  const { refreshToken: legacyToken } = z.object({ refreshToken: z.string().optional() }).parse(req.body ?? {});
+  const token = readRefreshCookie(req) ?? legacyToken;
+  if (token) revokeRefreshToken(token);
+  clearRefreshCookie(res);
   res.status(204).end();
 }));
 
@@ -98,5 +139,6 @@ authRouter.post('/password/reset', ah(async (req, res) => {
   const userId = consumeAccountToken(b.token, 'password_reset');
   run('UPDATE users SET password_hash = ? WHERE id = ?', await hashPassword(b.newPassword), userId);
   run("UPDATE refresh_tokens SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL", nowIso(), userId);
+  clearRefreshCookie(res);
   res.status(204).end();
 }));
